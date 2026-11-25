@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="ISO-8859-9" standalone="no"?><?xml-stylesheet type="text/xsl" href="isokur.xsl"?>
+<Tarih_Date Bulten_No="2004/251" Date="12/31/2004" Tarih="31.12.2004">
+<Currency CrossOrder="0" CurrencyCode="USD" Kod="USD"><Unit>1</Unit><Isim>ABD DOLARI</Isim><CurrencyName>US DOLLAR</CurrencyName><ForexBuying>1336300</ForexBuying><ForexSelling>1342700</ForexSelling><BanknoteBuying>1335400</BanknoteBuying><BanknoteSelling>1344700</BanknoteSelling><CrossRateUSD/><CrossRateOther/><CrossRateEuro/><Parite/></Currency>
+<Currency CrossOrder="9" CurrencyCode="JPY" Kod="JPY"><Unit>100</Unit><Isim>JAPON YENİ</Isim><CurrencyName>JAPENESE YEN</CurrencyName><ForexBuying>1297800</ForexBuying><ForexSelling>1306400</ForexSelling><BanknoteBuying>1292800</BanknoteBuying><BanknoteSelling>1311600</BanknoteSelling><CrossRateUSD>102.96</CrossRateUSD><CrossRateOther/><CrossRateEuro/><Parite/></Currency>
+<Currency CrossOrder="3" CurrencyCode="CHF" Kod="CHF"><Unit>1</Unit><Isim>İSVİÇRE FRANGI</Isim><CurrencyName>SWISS FRANK</CurrencyName><ForexBuying>1177600</ForexBuying><ForexSelling>1185200</ForexSelling><BanknoteBuying>1175000</BanknoteBuying><BanknoteSelling>1188800</BanknoteSelling><CrossRateUSD>1.1347</CrossRateUSD><CrossRateOther/><CrossRateEuro/><Parite/></Currency>
+</Tarih_Date>

@@ -1,0 +1,29 @@
+# secrets
+.env
+
+# data is never committed
+data/*
+!data/.gitkeep
+mlruns/
+
+# python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# dbt / dagster (later stages)
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+.dagster/
+
+# .NET / node (later stages)
+bin/
+obj/
+node_modules/
+out/
