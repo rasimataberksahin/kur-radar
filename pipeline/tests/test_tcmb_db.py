@@ -24,7 +24,7 @@ def one(conn, sql, *params):
 
 def test_migrations_are_idempotent(db_conn):
     assert migrate(db_conn) == []
-    assert one(db_conn, "SELECT count(*) FROM raw.schema_migrations") == 2
+    assert one(db_conn, "SELECT count(*) FROM raw.schema_migrations") == 3
 
 
 def test_load_then_reload_is_noop(db_conn, tmp_path, new_bulletin):

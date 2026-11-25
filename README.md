@@ -12,7 +12,7 @@ in a .NET + React desktop app.
 |---|---|---|
 | 0. Skeleton | ✅ | Monorepo, Docker Compose Postgres, CI (ruff + pytest + Postgres) |
 | 1. TCMB ingestion | ✅ | Full archive since 1996, SHA-256 landing, idempotent load, 404/holiday handling |
-| 2. Gold ingestion | — | Truncgil 15-min snapshots (gram/çeyrek/…), historical ounce gold |
+| 2. Gold ingestion | ✅ | Truncgil live board snapshots (gram/çeyrek/…), daily ounce gold since 2000 behind a swappable adapter |
 | 3. dbt | — | Staging → marts, redenomination, cross rates, feature table, gold spread |
 | 4. Dagster | — | Daily (after TCMB's ~15:30 bulletin) and 15-min schedules, backfills, asset checks |
 | 5. ML | — | Direction (up/down probability), magnitude (quantiles + conformal), volatility regime; walk-forward backtests; MLflow |
@@ -23,7 +23,7 @@ in a .NET + React desktop app.
 ```
 pipeline/            Python package `kurradar` (ingestion now; Dagster + ML later)
   src/kurradar/db/   forward-only SQL migrations
-  src/kurradar/ingestion/   landing + per-source adapters (tcmb/)
+  src/kurradar/ingestion/   landing, polite HTTP, manifest + per-source adapters (tcmb/, gold/)
   tests/             unit + Postgres integration tests, trimmed real-format fixtures
 docker/              Postgres init (creates the kurradar_test database)
 data/raw/            landed source files — git-ignored, never committed
@@ -131,3 +131,90 @@ left unasked, and no day is misattributed. A rerun requests only today, and `rel
 | `test_tcmb_client.py` | URL format, 404 → not published, retry with backoff, give-up, HTML-with-200 refused, rate limit spacing |
 | `test_landing.py` | Content-addressed naming, idempotent landing, revisions, tamper detection |
 | `test_tcmb_db.py` (Postgres) | Migrations idempotent, reload is a no-op, a revision rewrites only changed currencies, full rollback on bad files, no downgrade of loaded days, planner rules, end-to-end backfill twice, a bad day doesn't stop the run, empty and re-served bulletins become `not_published`, a wrongly loaded day is corrected only with proof |
+
+## Stage 2 — Gold ingestion
+
+Turkish gold prices have no free official history, so gold comes from two sources:
+
+| Source | What | Granularity | Table |
+|---|---|---|---|
+| [Truncgil Finans](https://finans.truncgil.com/v4/today.json) | Live Turkish market board: gram, has, çeyrek, yarım, tam, cumhuriyet, 14/18 ayar, silver, plus currencies | Snapshot (poll every 15 min) | `raw.truncgil_quotes` |
+| Yahoo Finance chart API, `GC=F` | COMEX gold futures, USD per troy ounce | Daily since 2000-08-30 | `raw.gold_ounce_daily` |
+
+dbt (stage 3) rebuilds the **historical gram-gold series** as
+`ounce close × TCMB USD/TRY ÷ 31.1034768`. It then calibrates that series against the live
+board, which gives the spread between the Grand Bazaar price and the international price.
+`kurradar gold status` already runs this cross-check. On 24.11.2026 it gave 5,797.87 TL implied
+against a 5,719 TL board price. The ~1.4% gap is the futures premium plus timing.
+
+Both sources reuse the stage 1 machinery:
+- SHA-256 landing (`data/raw/truncgil/…`, `data/raw/yahoo_gcf/…`)
+- `raw.ingest_manifest`
+- one transaction per file
+- `IS DISTINCT FROM` upserts, so re-polling an unchanged board or history adds nothing
+- `PoliteClient` (`ingestion/http.py`), the shared rate limiter and retry policy that TCMB now
+  uses too
+
+### Truncgil board
+
+- A snapshot is keyed by the board's own `Update_Date` (Istanbul time). The table key is
+  `(observed_at, code)`. Polling a board that hasn't moved returns the same bytes and is a no-op.
+  If the bytes change under the same timestamp, only the quotes that changed are rewritten.
+- Every instrument is kept raw, 86 today. dbt picks the products it models.
+- Numbers are parsed straight to `Decimal`, never through float.
+- A board is **refused** in these cases:
+  - invalid JSON, or duplicate keys
+  - a missing or malformed `Update_Date`
+  - a timestamp more than 10 minutes in the future
+  - a non-numeric or negative price
+  - an entry without `Type`
+  - no usable gram-gold (`GRA`) quote
+- New top-level scalar fields are ignored and counted in `skipped_count`, so a harmless API
+  addition doesn't stop the 15-minute job.
+
+| Quirk | Handling |
+|---|---|
+| A price published as `0` (ONS, BRENT, DBITCOIN) | Means "no quote", stored as `NULL` |
+| An entry with no `Buying` key (XU100, DBITCOIN, BRENT) | `NULL` |
+| The board's "Gold" type also holds BIST 100, Brent and Bitcoin | Kept raw; dbt selects gold products by code |
+
+### Ounce history (swappable provider)
+
+`OunceProvider` is a small protocol: `fetch(start)` and `parse(bytes) → bars`. The default
+`YahooChartProvider` uses an unofficial public endpoint. If it changes, a replacement only needs
+those two methods; the loader, the table and the downstream models stay the same. The
+incremental fetch re-asks the last 10 days, so bars still trading at the last run get finalised
+and late corrections are picked up.
+
+| Quirk (real data) | Handling |
+|---|---|
+| Prices are float32 artefacts (`273.8999938964844`) | Recovered to the shortest decimal that round-trips (`273.9`) |
+| 83 holidays arrive as bars with every field null | Skipped and counted (`skipped_count`) |
+| 43 half-day sessions are stamped 09:30 instead of midnight | Dated in the exchange's time zone (America/New_York) |
+| 441 days (mostly 2001–2010) have a close, which is the settlement price, outside the session high/low | Kept, `ohlc_consistent = false` |
+| The newest bar is the session still trading | `is_final = price_date < fetch day`. A final bar is never reverted by an older file (upsert guard) |
+
+A response is **refused** in these cases: a wrong symbol, a currency other than USD, a
+granularity other than 1d, a Yahoo error object, arrays of different lengths, two bars on one
+date, no priced bars, or a non-positive close.
+
+Result: **6,586 daily bars from 30.08.2000 to today** (1 still trading). A rerun changes only
+the trading bar.
+
+### Commands
+
+```powershell
+.venv\Scripts\kurradar gold ounce --full    # whole ounce history (one request)
+.venv\Scripts\kurradar gold ounce           # incremental (last stored bar − 10 days)
+.venv\Scripts\kurradar gold snapshot        # one board snapshot; scheduled every 15 min in stage 4
+.venv\Scripts\kurradar gold reload          # re-verify hashes and reload landed files
+.venv\Scripts\kurradar gold status          # coverage, freshness, gram-gold cross-check
+```
+
+### Tests
+
+| File | What it proves |
+|---|---|
+| `test_truncgil.py` | Real board parsed exactly, zero and missing prices become NULL, every refusal rule, duplicate keys, clock skew, tolerated new fields, HTTP retry, HTML refused |
+| `test_ounce.py` | float32 recovery, holiday and half-day bars, settlement outside high/low, every refusal rule, full vs incremental request parameters |
+| `test_gold_db.py` (Postgres) | Reload no-op, same-timestamp revision rewrites only changed quotes, a new board timestamp is a new snapshot, invalid files load nothing, Istanbul fetch-day landing, `is_final` lifecycle and no reverting, full-then-incremental with overlap, reload reports invalid files, gram-gold cross-check with TCMB |
