@@ -1,0 +1,22 @@
+version: 2
+sources:
+  - name: raw
+    description: Values exactly as each source published them, loaded by the Python pipeline.
+    schema: raw
+    tables:
+      - name: tcmb_rates
+        description: TCMB daily bulletin, one row per currency per bulletin day.
+        loaded_at_field: "rate_date::timestamp"
+        freshness:  # a long holiday (e.g. Kurban Bayramı) can skip up to ~9 days
+          warn_after: {count: 5, period: day}
+          error_after: {count: 12, period: day}
+      - name: truncgil_quotes
+        description: Truncgil live board snapshots.
+        loaded_at_field: observed_at
+        freshness:  # the board stops moving over the weekend
+          warn_after: {count: 3, period: day}
+      - name: gold_ounce_daily
+        description: Daily ounce-gold bars (USD per troy ounce).
+        loaded_at_field: "price_date::timestamp"
+        freshness:
+          warn_after: {count: 5, period: day}

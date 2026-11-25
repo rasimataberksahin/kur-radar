@@ -13,7 +13,7 @@ in a .NET + React desktop app.
 | 0. Skeleton | ✅ | Monorepo, Docker Compose Postgres, CI (ruff + pytest + Postgres) |
 | 1. TCMB ingestion | ✅ | Full archive since 1996, SHA-256 landing, idempotent load, 404/holiday handling |
 | 2. Gold ingestion | ✅ | Truncgil live board snapshots (gram/çeyrek/…), daily ounce gold since 2000 behind a swappable adapter |
-| 3. dbt | — | Staging → marts, redenomination, cross rates, feature table, gold spread |
+| 3. dbt | ✅ | Staging → marts, redenomination, cross rates, historical gram gold, board premiums, point-in-time features + labels |
 | 4. Dagster | — | Daily (after TCMB's ~15:30 bulletin) and 15-min schedules, backfills, asset checks |
 | 5. ML | — | Direction (up/down probability), magnitude (quantiles + conformal), volatility regime; walk-forward backtests; MLflow |
 | 6. Monitoring | — | Forecast-vs-actual store, hit-rate / calibration / coverage trends, drift alerts |
@@ -25,6 +25,7 @@ pipeline/            Python package `kurradar` (ingestion now; Dagster + ML late
   src/kurradar/db/   forward-only SQL migrations
   src/kurradar/ingestion/   landing, polite HTTP, manifest + per-source adapters (tcmb/, gold/)
   tests/             unit + Postgres integration tests, trimmed real-format fixtures
+transform/           dbt project: staging → intermediate → marts, seeds, data tests
 docker/              Postgres init (creates the kurradar_test database)
 data/raw/            landed source files — git-ignored, never committed
 ```
@@ -218,3 +219,90 @@ the trading bar.
 | `test_truncgil.py` | Real board parsed exactly, zero and missing prices become NULL, every refusal rule, duplicate keys, clock skew, tolerated new fields, HTTP retry, HTML refused |
 | `test_ounce.py` | float32 recovery, holiday and half-day bars, settlement outside high/low, every refusal rule, full vs incremental request parameters |
 | `test_gold_db.py` (Postgres) | Reload no-op, same-timestamp revision rewrites only changed quotes, a new board timestamp is a new snapshot, invalid files load nothing, Istanbul fetch-day landing, `is_final` lifecycle and no reverting, full-then-incremental with overlap, reload reports invalid files, gram-gold cross-check with TCMB |
+
+## Stage 3 — dbt models
+
+The dbt project lives in `transform/`. `kurradar dbt <command>` runs it in-process and builds
+its connection from `.env`'s `DATABASE_URL`, so the database is configured in one place.
+
+```powershell
+.venv\Scripts\kurradar dbt build              # seeds + models + data tests (~20 s on the full history)
+.venv\Scripts\kurradar dbt source freshness   # TCMB ≤ 5 days, board ≤ 3 days, ounce ≤ 5 days
+```
+
+### Lineage
+
+```
+raw.tcmb_rates ──► stg_tcmb__rates ──► fct_fx_daily ──┬─► fct_fx_cross_daily
+                                                      │
+raw.gold_ounce_daily ► stg_gold__ounce_daily ─────────┼─► fct_gold_gram_daily ─► fct_gold_board_daily
+                                                      │                              ▲
+raw.truncgil_quotes ─► stg_truncgil__quotes ──────────┼──────────────────────────────┘ (+ seed gold_products)
+                                                      ▼
+                         int_series_daily ─► int_series_features ─► fct_features_daily
+                                 └──────────────────────────────────► fct_labels_daily
+```
+
+| Schema | Model | Grain | What it does |
+|---|---|---|---|
+| staging | `stg_tcmb__rates` | day × currency | **New lira per ONE unit.** Divides by 1,000,000 before 2005 (redenomination) and by the quoting unit. JPY is per 1 before 2005 and per 100 after, so the unit has to be read per row. Indicative mid = forex mid → one forex side → banknote mid. |
+| staging | `stg_truncgil__quotes` | snapshot × code | Istanbul date, mid, bid/ask spread |
+| staging | `stg_gold__ounce_daily` | trading day | Ounce close (USD), `is_final` |
+| marts | `fct_fx_daily` | day × currency | 43 currencies, with the log return and days since the previous bulletin |
+| marts | `fct_fx_cross_daily` | day × pair | EURUSD, GBPUSD, USDJPY and USDCHF from the same bulletin's TRY rates (seed `fx_pairs`) |
+| marts | `fct_gold_gram_daily` | trading day | **Historical gram gold = ounce × USD/TRY ÷ 31.1034768.** USD/TRY is taken as of the ounce date, from the latest bulletin on or before it. A day is dropped if that bulletin is more than 10 days old. 6,586 days, from 5.64 TL (2000) to ~5,790 TL. |
+| marts | `fct_gold_board_daily` | day × product | The day's last board snapshot for 14 products (seed `gold_products`: gross grams and fineness), with **premium over the board's HAS price** and **premium over the international price**. Example: çeyrek +7.5%, gram −0.3%. |
+| marts | `fct_features_daily` | series × day | Point-in-time features for USDTRY, EURTRY and GRAMTRY (below) |
+| marts | `fct_labels_daily` | series × day × horizon | Forward log return and `is_up` for 1, 5 and 20 observations ahead |
+
+### Features vs labels (no look-ahead)
+
+Features and labels are **separate models** on purpose:
+
+- **Features.** Each target series gets these backward-looking features:
+  - returns over 1, 5 and 20 observations
+  - 20- and 60-day volatility and their ratio (the regime)
+  - gap to the 20- and 60-day moving average, and position in the 60-day range
+  - observation gap, day of week, month
+
+  The windows start only when full. Exogenous series (USDTRY, XAUUSD, EURUSD) are joined
+  **as of** the row's date: their latest observation on or before it, never later.
+- **Rule.** A feature row for `obs_date` uses only data available by the end of that Istanbul
+  day. TCMB publishes at 15:30 Istanbul and COMEX settles at 13:30 New York (20:30/21:30 Istanbul).
+- **Labels.** Labels are the only forward-looking table. Stage 5 joins them to features only by
+  `(series_id, obs_date)`.
+
+The label table already shows the baseline any model has to beat. Over 1996–2026, USD/TRY
+rose over 20 observations **66.5%** of the time, EUR/TRY 61.9% and gram gold 62.0%. A model
+that always says "up" is right that often.
+
+### Data tests (46 in total)
+
+Generic tests cover the grain of every model (a package-free `unique_combination` test),
+not-nulls and accepted values. The singular tests in `transform/tests/` pin the domain rules:
+
+| Test | Guards against |
+|---|---|
+| `assert_redenomination_is_continuous` | Each currency's last 2004 bulletin vs its first 2005 bulletin within 5%, when both are loaded (USD 1.3395 → 1.3416) |
+| `assert_per_unit_scaling` | A missing ÷unit: JPY must stay between 1/1000 and 1/50 of USD |
+| `assert_no_implausible_fx_jumps` | Consecutive-bulletin moves above 40% log. The largest real one is the 22.02.2001 float, about +33%. |
+| `assert_gram_gold_uses_recent_usd_rate` | Gram gold priced with a stale USD rate |
+| `assert_gram_gold_close_to_board` | Reconstructed gram gold more than 10% away from the live board's gram price |
+| `assert_features_are_point_in_time` | An exogenous feature dated after its row |
+| `assert_labels_look_forward` | A label that isn't strictly in the future |
+
+`pipeline/tests/test_dbt.py` runs the **real dbt project** on fixture data in the test
+database, in CI too:
+- It checks exact numbers: USD 2004-12-31 = 1.3395, JPY = 0.013021 per yen, gram gold from
+  ounce × USD ÷ 31.1034768, the board premium.
+- It checks that the data tests **fail** when the data is wrong. A JPY unit error is caught by
+  `assert_per_unit_scaling`. A 2005 bulletin left in old lira is caught by the continuity and
+  jump tests.
+
+**Performance note.** A first version took about 10 minutes, for two reasons:
+- Index post-hooks were silently skipped. `create index if not exists` found the name still
+  taken by dbt's backup table.
+- The as-of joins read a CTE that Postgres materialised without indexes.
+
+Switching to dbt-postgres's native `indexes` config and reading the indexed table directly
+brought the full build to about 20 seconds.

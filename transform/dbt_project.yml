@@ -1,0 +1,38 @@
+name: kurradar
+version: "0.3.0"
+config-version: 2
+profile: kurradar
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  kurradar:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  kurradar:
+    +schema: reference
+
+vars:
+  grams_per_troy_ounce: 31.1034768
+  # longest real gap between TCMB bulletins is a 9-day bayram holiday
+  max_usd_rate_age_days: 10
+  # series the ML stage forecasts, and how many observations ahead
+  target_series: ["USDTRY", "EURTRY", "GRAMTRY"]
+  horizons: [1, 5, 20]
+
+flags:
+  send_anonymous_usage_stats: false

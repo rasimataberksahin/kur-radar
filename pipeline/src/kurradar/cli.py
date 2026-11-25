@@ -8,6 +8,7 @@ kurradar gold snapshot        # one Truncgil board snapshot (run every 15 min)
 kurradar gold ounce [--full]  # daily ounce-gold history (incremental by default)
 kurradar gold reload
 kurradar gold status
+kurradar dbt build            # any dbt command, run on transform/ against DATABASE_URL
 """
 
 from __future__ import annotations
@@ -66,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     oz.add_argument("--full", action="store_true", help="whole history instead of recent days")
     gsub.add_parser("reload", help="load every landed gold file again (loaded ones skip)")
     gsub.add_parser("status", help="coverage and sanity report")
+
+    dbt = sub.add_parser("dbt", help="run dbt on transform/ (e.g. `kurradar dbt build`)")
+    dbt.add_argument("dbt_args", nargs=argparse.REMAINDER)
     return p
 
 
@@ -79,6 +83,13 @@ def main(argv: list[str] | None = None) -> int:
     if not s.database_url:
         print("DATABASE_URL is not set (copy .env.example to .env)", file=sys.stderr)
         return 2
+
+    if args.cmd == "dbt":
+        from .transform import run_dbt
+
+        with psycopg.connect(s.database_url) as conn:
+            migrate(conn)  # dbt sources must exist
+        return 0 if run_dbt(args.dbt_args or ["build"], s.database_url).success else 1
 
     with psycopg.connect(s.database_url) as conn:
         applied = migrate(conn)

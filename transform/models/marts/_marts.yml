@@ -1,0 +1,46 @@
+version: 2
+models:
+  - name: fct_fx_daily
+    description: >
+      TCMB indicative rates per bulletin day and currency in new lira per one unit, with the
+      log return since the previous bulletin.
+    data_tests:
+      - unique_combination: {arguments: {columns: [rate_date, currency_code]}}
+    columns:
+      - name: mid_try
+        data_tests: [not_null]
+  - name: fct_fx_cross_daily
+    description: Cross rates derived from same-bulletin TRY rates (EURUSD, GBPUSD, USDJPY, USDCHF).
+    data_tests:
+      - unique_combination: {arguments: {columns: [rate_date, pair]}}
+  - name: fct_gold_gram_daily
+    description: >
+      Historical gram gold in TRY = ounce close × TCMB USD/TRY (as of the ounce date) ÷
+      31.1034768. The only free, registration-free way to get gram-gold history back to 2000.
+    columns:
+      - name: price_date
+        data_tests: [unique, not_null]
+      - name: gram_try
+        data_tests: [not_null]
+      - name: usd_rate_age_days
+        description: Days between the ounce date and the TCMB bulletin used (holidays).
+  - name: fct_gold_board_daily
+    description: >
+      Turkish gold products at each day's last board snapshot, with their premium over the
+      fine-gold content at the board's HAS price and at the international price.
+    data_tests:
+      - unique_combination: {arguments: {columns: [observed_date, code]}}
+  - name: fct_features_daily
+    description: >
+      Point-in-time feature rows for the target series (USDTRY, EURTRY, GRAMTRY). Each row
+      uses only information available by the end of obs_date (Istanbul).
+    data_tests:
+      - unique_combination: {arguments: {columns: [series_id, obs_date]}}
+  - name: fct_labels_daily
+    description: Forward log returns and up/down labels for 1, 5 and 20 observations ahead.
+    data_tests:
+      - unique_combination: {arguments: {columns: [series_id, obs_date, horizon]}}
+    columns:
+      - name: horizon
+        data_tests:
+          - accepted_values: {arguments: {values: [1, 5, 20], quote: false}}

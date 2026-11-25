@@ -39,7 +39,8 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
-      # -rs prints skip reasons so a silently skipped DB suite is visible
+      # -rs prints skip reasons so a silently skipped DB suite is visible.
+      # test_dbt.py builds the real dbt project (transform/) on fixture data here.
       - run: pytest -q -rs
 
   # api (.NET 10) and desktop (Electron + React) jobs are added in stages 7 and 8.

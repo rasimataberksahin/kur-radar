@@ -1,0 +1,19 @@
+version: 2
+seeds:
+  - name: gold_products
+    description: >
+      Turkish gold products on the Truncgil board with their nominal specs (gross weight and
+      millesimal fineness), used to compute each product's premium over its gold content.
+    config:
+      column_types:
+        gross_grams: "numeric(8,3)"
+        fineness: "numeric(4,3)"
+        display_order: integer
+    columns:
+      - name: code
+        data_tests: [unique, not_null]
+  - name: fx_pairs
+    description: Cross rates derived from TCMB's TRY rates (base per quote).
+    columns:
+      - name: pair
+        data_tests: [unique, not_null]

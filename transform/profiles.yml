@@ -1,0 +1,14 @@
+# Filled from DATABASE_URL by `kurradar dbt …` (see pipeline/src/kurradar/transform.py),
+# so the connection is configured in exactly one place (.env).
+kurradar:
+  target: local
+  outputs:
+    local:
+      type: postgres
+      host: "{{ env_var('KURRADAR_DB_HOST') }}"
+      port: "{{ env_var('KURRADAR_DB_PORT') | int }}"
+      user: "{{ env_var('KURRADAR_DB_USER') }}"
+      password: "{{ env_var('KURRADAR_DB_PASSWORD') }}"
+      dbname: "{{ env_var('KURRADAR_DB_NAME') }}"
+      schema: analytics
+      threads: 4

@@ -17,9 +17,10 @@ build/
 dist/
 
 # dbt / dagster (later stages)
-dbt/target/
-dbt/logs/
-dbt/dbt_packages/
+transform/target/
+transform/logs/
+transform/dbt_packages/
+transform/.user.yml
 .dagster/
 
 # .NET / node (later stages)

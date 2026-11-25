@@ -1,0 +1,25 @@
+version: 2
+models:
+  - name: stg_tcmb__rates
+    description: >
+      TCMB rates in new lira per one unit of the currency. Bulletins before 2005 are divided
+      by 1,000,000 (redenomination) and every value by its quoting unit (JPY per 100, ...).
+    data_tests:
+      - unique_combination: {arguments: {columns: [rate_date, currency_code]}}
+    columns:
+      - name: quoted_unit
+        data_tests:
+          - not_null
+          - accepted_values: {arguments: {values: [1, 100, 1000, 10000, 100000], quote: false}}
+  - name: stg_truncgil__quotes
+    data_tests:
+      - unique_combination: {arguments: {columns: [observed_at, code]}}
+    columns:
+      - name: observed_date
+        data_tests: [not_null]
+  - name: stg_gold__ounce_daily
+    columns:
+      - name: price_date
+        data_tests: [unique, not_null]
+      - name: ounce_usd
+        data_tests: [not_null]

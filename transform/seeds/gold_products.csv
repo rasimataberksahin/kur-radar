@@ -1,0 +1,15 @@
+code,product_tr,product_en,gross_grams,fineness,display_order
+GRA,Gram Altın,Gram gold,1.000,0.995,1
+HAS,Has Altın,Fine gold (gram),1.000,0.995,2
+CEYREKALTIN,Çeyrek Altın,Quarter coin,1.754,0.916,3
+YARIMALTIN,Yarım Altın,Half coin,3.508,0.916,4
+TAMALTIN,Tam Altın,Full coin,7.016,0.916,5
+CUMHURIYETALTINI,Cumhuriyet Altını,Republic coin,7.216,0.916,6
+ATAALTIN,Ata Altın,Ata coin,7.216,0.916,7
+RESATALTIN,Reşat Altın,Reşat coin,7.216,0.916,8
+HAMITALTIN,Hamit Altın,Hamit coin,7.216,0.916,9
+IKIBUCUKALTIN,İkibuçuk Altın,2.5 coin,18.040,0.916,10
+GREMSEALTIN,Gremse Altın,Gremse coin,17.540,0.916,11
+BESLIALTIN,Beşli Altın,Five coin,36.080,0.916,12
+14AYARALTIN,14 Ayar Altın,14k gold (gram),1.000,0.585,13
+18AYARALTIN,18 Ayar Altın,18k gold (gram),1.000,0.750,14
